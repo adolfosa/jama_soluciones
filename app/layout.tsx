@@ -7,7 +7,7 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'TaskAdmin - Sistema de Gestion de Tareas',
+  title: 'Gestion de Tareas',
   description: 'Panel de administracion para gestion de tareas multi-empresa',
   generator: 'v0.app',
   icons: {
