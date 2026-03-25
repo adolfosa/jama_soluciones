@@ -90,10 +90,6 @@ export function LoginForm({ onLoginSuccess }: LoginFormProps) {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Ingresando...' : 'Iniciar Sesión'}
             </Button>
-
-            <p className="text-xs text-muted-foreground text-center mt-2">
-              Usuario por defecto: superadmin / superadmin
-            </p>
           </form>
         </CardContent>
       </Card>
