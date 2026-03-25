@@ -43,6 +43,7 @@ export const ROLE_PERMISSIONS: Record<RolSistema, Permiso[]> = {
     'VER_DASHBOARD',
     'VER_USUARIOS',
     'VER_TAREAS',
+    'GESTIONAR_TAREAS',
     'ASIGNAR_TAREAS',
     'VER_MAPA',
     'VER_DOCUMENTOS',
