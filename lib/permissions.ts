@@ -104,9 +104,18 @@ export function puedeSubirDocumentos(rol: RolSistema): boolean {
 
 /**
  * Verifica si el usuario puede eliminar documentos
+ * ADMIN y SUPERADMIN pueden eliminar documentos de su empresa
+ * SUPERVISOR y OPERADOR no pueden eliminar
  */
 export function puedeEliminarDocumentos(rol: RolSistema): boolean {
-  return tienePermiso(rol, 'GESTIONAR_DOCUMENTOS') || ROLE_PERMISSIONS[rol]?.includes('*')
+  return rol === 'SUPERADMIN' || rol === 'ADMIN'
+}
+
+/**
+ * Verifica si el usuario puede gestionar documentos (alias de puedeEliminarDocumentos)
+ */
+export function puedeGestionarDocumentos(rol: RolSistema): boolean {
+  return puedeEliminarDocumentos(rol)
 }
 
 /**

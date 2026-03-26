@@ -23,10 +23,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { getDocumentos, crearDocumento, eliminarDocumento, getTareas } from '@/lib/storage'
-import { Documento, Tarea } from '@/lib/types'
-import { Plus, Trash2, FileText, Upload, File, FileImage, FileArchive } from 'lucide-react'
+import { getDocumentos, crearDocumento, eliminarDocumento, getTareas, getUsuario } from '@/lib/storage'
+import { Documento, Tarea, Sesion } from '@/lib/types'
+import { Plus, Trash2, FileText, Upload, File, FileImage, FileArchive, Download, Eye, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { puedeVerTodasEmpresas, soloVerPropiosDocumentos, puedeEliminarDocumentos } from '@/lib/permissions'
+
+interface DocumentosProps {
+  sesion: Sesion
+}
 
 const tipoIconos: Record<string, React.ComponentType<{ className?: string }>> = {
   pdf: FileText,
@@ -36,29 +41,54 @@ const tipoIconos: Record<string, React.ComponentType<{ className?: string }>> = 
 }
 
 const getTipoIcono = (tipo: string) => {
-  if (tipo.includes('pdf')) return tipoIconos.pdf
-  if (tipo.includes('image') || tipo.includes('jpg') || tipo.includes('png')) return tipoIconos.image
-  if (tipo.includes('zip') || tipo.includes('rar')) return tipoIconos.zip
+  if (tipo === 'pdf') return tipoIconos.pdf
+  if (tipo === 'image') return tipoIconos.image
   return tipoIconos.default
 }
 
-export function Documentos() {
+export function Documentos({ sesion }: DocumentosProps) {
   const [documentos, setDocumentos] = useState<Documento[]>([])
   const [tareas, setTareas] = useState<Tarea[]>([])
   const [modalAbierto, setModalAbierto] = useState(false)
+  const [previewModalAbierto, setPreviewModalAbierto] = useState(false)
+  const [documentoPreview, setDocumentoPreview] = useState<Documento | null>(null)
+  const [subiendo, setSubiendo] = useState(false)
+  const [archivoSeleccionado, setArchivoSeleccionado] = useState<File | null>(null)
   const [formData, setFormData] = useState({
-    nombre: '',
     tareaId: 0,
-    tipo: '',
   })
 
+  const esSuperAdmin = puedeVerTodasEmpresas(sesion.rol)
+  const soloPropios = soloVerPropiosDocumentos(sesion.rol)
+  const puedeEliminar = puedeEliminarDocumentos(sesion.rol)
+
   useEffect(() => {
-    setDocumentos(getDocumentos())
-    setTareas(getTareas())
-  }, [])
+    cargarDatos()
+  }, [sesion])
+
+  const cargarDatos = () => {
+    let documentosData = getDocumentos()
+    let tareasData = getTareas()
+
+    // Filtrar por empresa si no es SUPERADMIN
+    if (!esSuperAdmin && sesion.empresaId) {
+      documentosData = documentosData.filter(d => d.empresaId === sesion.empresaId)
+      tareasData = tareasData.filter(t => t.empresaId === sesion.empresaId)
+    }
+
+    // OPERADOR solo ve sus propios documentos
+    if (soloPropios) {
+      documentosData = documentosData.filter(d => d.usuarioId === sesion.userId)
+      tareasData = tareasData.filter(t => t.usuarioAsignadoId === sesion.userId)
+    }
+
+    setDocumentos(documentosData)
+    setTareas(tareasData)
+  }
 
   const resetForm = () => {
-    setFormData({ nombre: '', tareaId: 0, tipo: '' })
+    setArchivoSeleccionado(null)
+    setFormData({ tareaId: 0 })
   }
 
   const cerrarModal = () => {
@@ -69,39 +99,96 @@ export function Documentos() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      setFormData({
-        ...formData,
-        nombre: file.name,
-        tipo: file.type || 'application/octet-stream',
-      })
+      // Validar tamaño máximo (10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error('El archivo no puede superar los 10MB')
+        return
+      }
+      setArchivoSeleccionado(file)
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!formData.nombre || !formData.tareaId) {
+    if (!archivoSeleccionado || !formData.tareaId) {
       toast.error('Por favor selecciona un archivo y una tarea')
       return
     }
 
-    crearDocumento({
-      nombre: formData.nombre,
-      tareaId: formData.tareaId,
-      tipo: formData.tipo,
-      fechaSubida: new Date().toISOString(),
-    })
+    setSubiendo(true)
 
-    toast.success('Documento adjuntado correctamente')
-    setDocumentos(getDocumentos())
-    cerrarModal()
+    try {
+      // Leer el archivo como Base64
+      const fileBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => {
+          const result = reader.result as string
+          resolve(result)
+        }
+        reader.onerror = () => reject(reader.error)
+        reader.readAsDataURL(archivoSeleccionado)
+      })
+
+      // Determinar tipo
+      let tipo: 'image' | 'pdf' | 'other' = 'other'
+      const extension = archivoSeleccionado.name.split('.').pop()?.toLowerCase()
+      
+      if (archivoSeleccionado.type.includes('pdf') || extension === 'pdf') {
+        tipo = 'pdf'
+      } else if (archivoSeleccionado.type.includes('image') || 
+                 ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(extension || '')) {
+        tipo = 'image'
+      }
+
+      crearDocumento({
+        nombre: archivoSeleccionado.name,
+        tareaId: formData.tareaId,
+        usuarioId: sesion.userId,
+        empresaId: sesion.empresaId,
+        tipo: tipo,
+        fileBase64: fileBase64,
+        latitud: 0,
+        longitud: 0,
+        timestamp: new Date().toISOString(),
+        fechaSubida: new Date().toISOString(),
+      })
+
+      toast.success('Documento adjuntado correctamente')
+      cargarDatos()
+      cerrarModal()
+    } catch (error) {
+      console.error('Error al subir archivo:', error)
+      toast.error('Error al procesar el archivo')
+    } finally {
+      setSubiendo(false)
+    }
   }
 
   const handleEliminar = (id: number) => {
     if (confirm('¿Estas seguro de eliminar este documento?')) {
       eliminarDocumento(id)
-      setDocumentos(getDocumentos())
+      cargarDatos()
       toast.success('Documento eliminado correctamente')
+    }
+  }
+
+  const handleVerDocumento = (documento: Documento) => {
+    setDocumentoPreview(documento)
+    setPreviewModalAbierto(true)
+  }
+
+  const handleDescargarDocumento = (documento: Documento) => {
+    if (documento.fileBase64) {
+      const link = document.createElement('a')
+      link.href = documento.fileBase64
+      link.download = documento.nombre
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      toast.success(`Descargando: ${documento.nombre}`)
+    } else {
+      toast.error('No se pudo descargar el archivo')
     }
   }
 
@@ -110,12 +197,19 @@ export function Documentos() {
     return tarea?.titulo || 'Tarea no encontrada'
   }
 
+  const getUsuarioNombre = (id: number) => {
+    const usuario = getUsuario(id)
+    return usuario?.nombre || 'Usuario no encontrado'
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">Documentos / Evidencias</h2>
-          <p className="text-muted-foreground">Gestiona los documentos adjuntos a tareas</p>
+          <p className="text-muted-foreground">
+            {soloPropios ? 'Tus documentos adjuntos' : 'Gestiona los documentos adjuntos a tareas'}
+          </p>
         </div>
         <Button onClick={() => setModalAbierto(true)}>
           <Plus className="h-4 w-4 mr-2" />
@@ -136,7 +230,9 @@ export function Documentos() {
               </EmptyMedia>
               <EmptyTitle>No hay documentos</EmptyTitle>
               <EmptyDescription>
-                Comienza adjuntando tu primer documento a una tarea
+                {soloPropios 
+                  ? 'Comienza adjuntando tu primer documento a una tarea asignada' 
+                  : 'Comienza adjuntando tu primer documento a una tarea'}
               </EmptyDescription>
               <Button onClick={() => setModalAbierto(true)} className="mt-4">
                 <Plus className="h-4 w-4 mr-2" />
@@ -149,7 +245,9 @@ export function Documentos() {
                 <TableRow>
                   <TableHead>Archivo</TableHead>
                   <TableHead>Tarea Asociada</TableHead>
+                  <TableHead>Subido por</TableHead>
                   <TableHead>Tipo</TableHead>
+                  <TableHead>Tamaño</TableHead>
                   <TableHead>Fecha de Subida</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
@@ -157,17 +255,29 @@ export function Documentos() {
               <TableBody>
                 {documentos.map((documento) => {
                   const Icono = getTipoIcono(documento.tipo)
+                  // Calcular tamaño aproximado del archivo (en KB)
+                  const fileSize = documento.fileBase64 ? Math.round(documento.fileBase64.length * 0.75 / 1024) : 0
+                  const fileSizeStr = fileSize > 1024 ? `${(fileSize / 1024).toFixed(1)} MB` : `${fileSize} KB`
+                  
                   return (
                     <TableRow key={documento.id}>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Icono className="h-5 w-5 text-muted-foreground" />
-                          <span className="font-medium">{documento.nombre}</span>
+                          <span className="font-medium truncate max-w-[200px]" title={documento.nombre}>
+                            {documento.nombre}
+                          </span>
                         </div>
                       </TableCell>
                       <TableCell>{getTareaTitulo(documento.tareaId)}</TableCell>
+                      <TableCell>{getUsuarioNombre(documento.usuarioId)}</TableCell>
                       <TableCell>
-                        <Badge variant="outline">{documento.tipo.split('/').pop()}</Badge>
+                        <Badge variant="outline">
+                          {documento.tipo === 'image' ? 'Imagen' : documento.tipo === 'pdf' ? 'PDF' : 'Otro'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {fileSize > 0 ? fileSizeStr : '-'}
                       </TableCell>
                       <TableCell>
                         {new Date(documento.fechaSubida).toLocaleDateString('es-CL', {
@@ -179,9 +289,34 @@ export function Documentos() {
                         })}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm" onClick={() => handleEliminar(documento.id)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => handleVerDocumento(documento)}
+                            title="Ver documento"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => handleDescargarDocumento(documento)}
+                            title="Descargar documento"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          {puedeEliminar && (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => handleEliminar(documento.id)}
+                              title="Eliminar documento"
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   )
@@ -192,6 +327,60 @@ export function Documentos() {
         </CardContent>
       </Card>
 
+      {/* Modal de Visualización de Documento */}
+      <Dialog open={previewModalAbierto} onOpenChange={setPreviewModalAbierto}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{documentoPreview?.nombre}</DialogTitle>
+            <DialogDescription>
+              Tipo: {documentoPreview?.tipo === 'image' ? 'Imagen' : documentoPreview?.tipo === 'pdf' ? 'PDF' : 'Documento'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {documentoPreview?.tipo === 'image' && documentoPreview.fileBase64 ? (
+              <div className="flex justify-center">
+                <img 
+                  src={documentoPreview.fileBase64} 
+                  alt={documentoPreview.nombre}
+                  className="max-w-full max-h-[60vh] object-contain rounded-lg"
+                />
+              </div>
+            ) : documentoPreview?.tipo === 'pdf' && documentoPreview.fileBase64 ? (
+              <div className="w-full">
+                <iframe
+                  src={documentoPreview.fileBase64}
+                  className="w-full h-[60vh] rounded-lg border"
+                  title={documentoPreview.nombre}
+                />
+              </div>
+            ) : documentoPreview?.fileBase64 ? (
+              <div className="text-center p-8 bg-muted rounded-lg">
+                <File className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
+                <p className="text-sm text-muted-foreground mb-4">
+                  Este archivo no se puede visualizar directamente
+                </p>
+                <Button onClick={() => handleDescargarDocumento(documentoPreview)}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Descargar Archivo
+                </Button>
+              </div>
+            ) : (
+              <div className="text-center p-8 bg-muted rounded-lg">
+                <FileText className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
+                <p className="text-sm text-muted-foreground">
+                  No se pudo cargar la vista previa
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreviewModalAbierto(false)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Resumen por Tarea */}
       <Card>
         <CardHeader>
@@ -201,7 +390,7 @@ export function Documentos() {
         <CardContent>
           {tareas.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No hay tareas creadas
+              No hay tareas disponibles
             </p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -235,7 +424,7 @@ export function Documentos() {
           <DialogHeader>
             <DialogTitle>Adjuntar Documento</DialogTitle>
             <DialogDescription>
-              Selecciona un archivo y asocialo a una tarea (simulado - solo guarda metadatos)
+              Selecciona un archivo (máx. 10MB) y asocialo a una tarea
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit}>
@@ -247,21 +436,13 @@ export function Documentos() {
                     id="archivo"
                     type="file"
                     onChange={handleFileChange}
-                    className="hidden"
+                    accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx,.xls,.xlsx"
+                    className="cursor-pointer"
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => document.getElementById('archivo')?.click()}
-                    className="w-full"
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    {formData.nombre || 'Seleccionar archivo'}
-                  </Button>
                 </div>
-                {formData.nombre && (
+                {archivoSeleccionado && (
                   <p className="text-xs text-muted-foreground">
-                    Archivo seleccionado: {formData.nombre}
+                    Archivo: {archivoSeleccionado.name} ({(archivoSeleccionado.size / 1024).toFixed(1)} KB)
                   </p>
                 )}
               </div>
@@ -294,8 +475,18 @@ export function Documentos() {
               <Button type="button" variant="outline" onClick={cerrarModal}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={tareas.length === 0}>
-                Adjuntar
+              <Button type="submit" disabled={!archivoSeleccionado || !formData.tareaId || subiendo}>
+                {subiendo ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Subiendo...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Adjuntar
+                  </>
+                )}
               </Button>
             </DialogFooter>
           </form>
