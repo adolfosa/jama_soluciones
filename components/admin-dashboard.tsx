@@ -23,7 +23,7 @@ const titulosSecciones: Record<SeccionActiva, string> = {
   usuarios: 'Gestion de Usuarios',
   roles: 'Roles y Perfiles',
   tareas: 'Gestion de Tareas',
-  mapa: 'Mapa / Geolocalizacion',
+  mapa: 'Mapa de Tareas',
   documentos: 'Documentos / Evidencias',
 }
 

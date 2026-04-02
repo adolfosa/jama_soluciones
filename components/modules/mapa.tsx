@@ -7,6 +7,7 @@ import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from '@/components/ui
 import { getTareas, getUsuarios } from '@/lib/storage'
 import { Sesion, Tarea, Usuario } from '@/lib/types'
 import { MapPin, CheckSquare } from 'lucide-react'
+import { puedeVerTodasEmpresas } from '@/lib/permissions'
 
 const estadoColors = {
   pendiente: 'bg-yellow-500',
@@ -29,10 +30,27 @@ export function Mapa({ sesion }: MapaProps) {
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [tareaSeleccionada, setTareaSeleccionada] = useState<Tarea | null>(null)
 
+  const esSuperAdmin = puedeVerTodasEmpresas(sesion.rol)
+
   useEffect(() => {
-    setTareas(getTareas())
-    setUsuarios(getUsuarios())
-  }, [])
+    cargarDatos()
+  }, [sesion])
+
+  const cargarDatos = () => {
+    let tareasData = getTareas()
+    const usuariosData = getUsuarios()
+
+    // Filtrar por empresa del usuario activo (excepto SUPERADMIN)
+    if (!esSuperAdmin && sesion.empresaId) {
+      tareasData = tareasData.filter(t => t.empresaId === sesion.empresaId)
+    }
+
+    // Filtrar solo tareas activas (pendiente y en_progreso) - NO mostrar completadas
+    tareasData = tareasData.filter(t => t.estado !== 'completada')
+
+    setTareas(tareasData)
+    setUsuarios(usuariosData)
+  }
 
   const tareasConCoordenadas = tareas.filter(t => t.coordenadas)
 
@@ -57,8 +75,10 @@ export function Mapa({ sesion }: MapaProps) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-2xl font-bold">Mapa / Geolocalizacion</h2>
-        <p className="text-muted-foreground">Visualiza la ubicacion de las tareas</p>
+        <h2 className="text-2xl font-bold">Mapa de Tareas</h2>
+        <p className="text-muted-foreground">
+          Visualiza las tareas activas geolocalizadas de {!esSuperAdmin && sesion.empresaId ? 'tu empresa' : 'todas las empresas'}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -66,7 +86,9 @@ export function Mapa({ sesion }: MapaProps) {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Vista de Mapa</CardTitle>
-            <CardDescription>Ubicaciones de tareas en Santiago, Chile (Simulado)</CardDescription>
+            <CardDescription>
+              Tareas activas (Pendientes y En Progreso) geolocalizadas
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {tareasConCoordenadas.length === 0 ? (
@@ -74,9 +96,9 @@ export function Mapa({ sesion }: MapaProps) {
                 <EmptyMedia variant="icon">
                   <MapPin className="h-6 w-6" />
                 </EmptyMedia>
-                <EmptyTitle>No hay ubicaciones</EmptyTitle>
+                <EmptyTitle>No hay tareas activas con ubicación</EmptyTitle>
                 <EmptyDescription>
-                  Las tareas creadas apareceran aqui con sus ubicaciones
+                  Las tareas activas (Pendientes o En Progreso) aparecerán aquí con sus ubicaciones
                 </EmptyDescription>
               </Empty>
             ) : (
@@ -98,7 +120,7 @@ export function Mapa({ sesion }: MapaProps) {
 
                 {/* Etiqueta del mapa */}
                 <div className="absolute top-2 left-2 bg-background/80 px-2 py-1 rounded text-xs font-medium">
-                  Santiago, Chile
+                  {!esSuperAdmin && sesion.empresaId ? 'Tareas de tu empresa' : 'Tareas de todas las empresas'} - Santiago, Chile
                 </div>
 
                 {/* Marcadores */}
@@ -114,7 +136,7 @@ export function Mapa({ sesion }: MapaProps) {
                       onClick={() => setTareaSeleccionada(tarea)}
                     >
                       <div className="flex flex-col items-center">
-                        <div className={`w-6 h-6 rounded-full ${estadoColors[tarea.estado]} flex items-center justify-center shadow-lg border-2 border-white`}>
+                        <div className={`w-6 h-6 rounded-full ${estadoColors[tarea.estado]} flex items-center justify-center shadow-lg border-2 border-white animate-pulse`}>
                           <MapPin className="h-4 w-4 text-white" />
                         </div>
                         {isSelected && (
@@ -132,16 +154,12 @@ export function Mapa({ sesion }: MapaProps) {
                   <p className="text-xs font-medium mb-1">Leyenda</p>
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                      <div className="w-3 h-3 rounded-full bg-yellow-500 animate-pulse" />
                       <span className="text-xs">Pendiente</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-blue-500" />
+                      <div className="w-3 h-3 rounded-full bg-blue-500 animate-pulse" />
                       <span className="text-xs">En Progreso</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-green-500" />
-                      <span className="text-xs">Completada</span>
                     </div>
                   </div>
                 </div>
@@ -155,19 +173,19 @@ export function Mapa({ sesion }: MapaProps) {
           <CardHeader>
             <CardTitle>Detalle de Tarea</CardTitle>
             <CardDescription>
-              {tareaSeleccionada ? 'Informacion de la tarea seleccionada' : 'Selecciona un marcador en el mapa'}
+              {tareaSeleccionada ? 'Información de la tarea seleccionada' : 'Selecciona un marcador en el mapa'}
             </CardDescription>
           </CardHeader>
           <CardContent>
             {tareaSeleccionada ? (
               <div className="flex flex-col gap-4">
                 <div>
-                  <p className="text-sm text-muted-foreground">Titulo</p>
+                  <p className="text-sm text-muted-foreground">Título</p>
                   <p className="font-medium">{tareaSeleccionada.titulo}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Descripcion</p>
-                  <p className="text-sm">{tareaSeleccionada.descripcion || 'Sin descripcion'}</p>
+                  <p className="text-sm text-muted-foreground">Descripción</p>
+                  <p className="text-sm">{tareaSeleccionada.descripcion || 'Sin descripción'}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Estado</p>
@@ -192,15 +210,23 @@ export function Mapa({ sesion }: MapaProps) {
                     {new Date(tareaSeleccionada.fechaInicio).toLocaleDateString('es-CL')}
                   </p>
                 </div>
+                {tareaSeleccionada.fechaFin && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Fecha Fin</p>
+                    <p className="font-medium">
+                      {new Date(tareaSeleccionada.fechaFin).toLocaleDateString('es-CL')}
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <Empty>
                 <EmptyMedia variant="icon">
                   <CheckSquare className="h-6 w-6" />
                 </EmptyMedia>
-                <EmptyTitle>Sin seleccion</EmptyTitle>
+                <EmptyTitle>Sin selección</EmptyTitle>
                 <EmptyDescription>
-                  Haz clic en un marcador del mapa para ver los detalles
+                  Haz clic en un marcador del mapa para ver los detalles de la tarea
                 </EmptyDescription>
               </Empty>
             )}
@@ -208,16 +234,19 @@ export function Mapa({ sesion }: MapaProps) {
         </Card>
       </div>
 
-      {/* Lista de tareas */}
+      {/* Lista de tareas activas */}
       <Card>
         <CardHeader>
-          <CardTitle>Tareas con Ubicacion</CardTitle>
-          <CardDescription>Total: {tareasConCoordenadas.length} tareas geolocalizadas</CardDescription>
+          <CardTitle>Tareas Activas con Ubicación</CardTitle>
+          <CardDescription>
+            Total: {tareasConCoordenadas.length} tareas activas geolocalizadas
+            {!esSuperAdmin && sesion.empresaId && ` (solo de tu empresa)`}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {tareasConCoordenadas.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No hay tareas con ubicacion registrada
+              No hay tareas activas con ubicación registrada
             </p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -232,7 +261,7 @@ export function Mapa({ sesion }: MapaProps) {
                   }`}
                 >
                   <div className="flex items-start gap-2">
-                    <div className={`w-3 h-3 rounded-full mt-1 ${estadoColors[tarea.estado]}`} />
+                    <div className={`w-3 h-3 rounded-full mt-1 ${estadoColors[tarea.estado]} animate-pulse`} />
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{tarea.titulo}</p>
                       <p className="text-xs text-muted-foreground">

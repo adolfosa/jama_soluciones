@@ -30,7 +30,7 @@ const menuItems: { id: SeccionActiva; label: string; icon: React.ComponentType<{
   { id: 'usuarios', label: 'Usuarios', icon: Users },
   { id: 'roles', label: 'Roles / Perfiles', icon: Shield },
   { id: 'tareas', label: 'Tareas', icon: CheckSquare },
-  { id: 'mapa', label: 'Mapa', icon: MapPin },
+  { id: 'mapa', label: 'Mapa de Tareas', icon: MapPin },
   { id: 'documentos', label: 'Documentos', icon: FileText },
 ]
 
