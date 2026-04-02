@@ -24,11 +24,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { getEmpresas, crearEmpresa, actualizarEmpresa, eliminarEmpresa } from '@/lib/storage'
-import { Empresa } from '@/lib/types'
+import { Empresa, Sesion } from '@/lib/types'
 import { Plus, Pencil, Trash2, Building2 } from 'lucide-react'
 import { toast } from 'sonner'
 
-export function Empresas() {
+interface EmpresasProps {
+  sesion: Sesion
+}
+
+export function Empresas({ sesion }: EmpresasProps) {
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [modalAbierto, setModalAbierto] = useState(false)
   const [empresaEditando, setEmpresaEditando] = useState<Empresa | null>(null)

@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { getTareas, getUsuarios } from '@/lib/storage'
-import { Tarea, Usuario } from '@/lib/types'
+import { Sesion, Tarea, Usuario } from '@/lib/types'
 import { MapPin, CheckSquare } from 'lucide-react'
 
 const estadoColors = {
@@ -20,7 +20,11 @@ const estadoLabels = {
   completada: 'Completada',
 }
 
-export function Mapa() {
+interface MapaProps {
+  sesion: Sesion
+}
+
+export function Mapa({ sesion }: MapaProps) {
   const [tareas, setTareas] = useState<Tarea[]>([])
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [tareaSeleccionada, setTareaSeleccionada] = useState<Tarea | null>(null)

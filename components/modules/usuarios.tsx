@@ -24,11 +24,16 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { getUsuarios, crearUsuario, actualizarUsuario, eliminarUsuario, getEmpresas, getRoles } from '@/lib/storage'
-import { Usuario, Empresa, Rol } from '@/lib/types'
+import { Usuario, Empresa, Rol, Sesion } from '@/lib/types'
 import { Plus, Pencil, Trash2, Users } from 'lucide-react'
 import { toast } from 'sonner'
+import { puedeVerTodasEmpresas } from '@/lib/permissions'
 
-export function Usuarios() {
+interface UsuariosProps {
+  sesion: Sesion
+}
+
+export function Usuarios({ sesion }: UsuariosProps) {
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [roles, setRoles] = useState<Rol[]>([])
@@ -44,11 +49,37 @@ export function Usuarios() {
     empresaId: null as number | null,
   })
 
+  const esSuperAdmin = puedeVerTodasEmpresas(sesion.rol)
+  const esAdmin = sesion.rol === 'ADMIN'
+
   useEffect(() => {
-    setUsuarios(getUsuarios())
-    setEmpresas(getEmpresas())
-    setRoles(getRoles())
-  }, [])
+    cargarDatos()
+  }, [sesion])
+
+  const cargarDatos = () => {
+    let usuariosData = getUsuarios()
+    const empresasData = getEmpresas()
+    const rolesData = getRoles()
+
+    // SUPERADMIN ve todos los usuarios
+    if (esSuperAdmin) {
+      // No filtrar, ver todos
+    } 
+    // ADMIN solo ve usuarios de su misma empresa
+    else if (esAdmin && sesion.empresaId) {
+      usuariosData = usuariosData.filter(u => u.empresaId === sesion.empresaId)
+      // ADMIN no puede ver otros SUPERADMIN
+      usuariosData = usuariosData.filter(u => u.rol !== 'SUPERADMIN')
+    }
+    // Otros roles (SUPERVISOR, OPERADOR) no deberían acceder a usuarios
+    else {
+      usuariosData = []
+    }
+
+    setUsuarios(usuariosData)
+    setEmpresas(empresasData)
+    setRoles(rolesData)
+  }
 
   const resetForm = () => {
     setFormData({
@@ -58,7 +89,7 @@ export function Usuarios() {
       rut: '',
       email: '',
       rol: '',
-      empresaId: null,
+      empresaId: esSuperAdmin ? null : sesion.empresaId,
     })
     setUsuarioEditando(null)
   }
@@ -94,6 +125,18 @@ export function Usuarios() {
       return
     }
 
+    // Validar que ADMIN no pueda crear SUPERADMIN
+    if (esAdmin && formData.rol === 'SUPERADMIN') {
+      toast.error('No puedes crear un usuario SUPERADMIN')
+      return
+    }
+
+    // Validar que ADMIN solo pueda crear usuarios para su empresa
+    if (esAdmin && formData.empresaId !== sesion.empresaId) {
+      toast.error('Solo puedes crear usuarios para tu empresa')
+      return
+    }
+
     if (!usuarioEditando && !formData.password) {
       toast.error('La contraseña es requerida para nuevos usuarios')
       return
@@ -110,19 +153,27 @@ export function Usuarios() {
       toast.success('Usuario creado correctamente')
     }
 
-    setUsuarios(getUsuarios())
+    cargarDatos()
     cerrarModal()
   }
 
   const handleEliminar = (id: number) => {
     const usuario = usuarios.find(u => u.id === id)
+    
     if (usuario?.rol === 'SUPERADMIN') {
       toast.error('No puedes eliminar al usuario SUPERADMIN')
       return
     }
+    
+    // ADMIN no puede eliminar usuarios de otras empresas
+    if (esAdmin && usuario?.empresaId !== sesion.empresaId) {
+      toast.error('No puedes eliminar usuarios de otras empresas')
+      return
+    }
+
     if (confirm('¿Estas seguro de eliminar este usuario?')) {
       eliminarUsuario(id)
-      setUsuarios(getUsuarios())
+      cargarDatos()
       toast.success('Usuario eliminado correctamente')
     }
   }
@@ -133,17 +184,61 @@ export function Usuarios() {
     return empresa?.nombre || 'No encontrada'
   }
 
+  // Filtrar roles disponibles según el usuario logueado
+  const getRolesDisponibles = () => {
+    if (esSuperAdmin) {
+      return roles // SUPERADMIN puede ver todos los roles
+    }
+    if (esAdmin) {
+      // ADMIN solo puede crear: ADMIN, SUPERVISOR, OPERADOR (no SUPERADMIN)
+      return roles.filter(r => r.nombre !== 'SUPERADMIN')
+    }
+    return []
+  }
+
+  // Verificar si puede editar un usuario
+  const puedeEditarUsuario = (usuario: Usuario) => {
+    if (esSuperAdmin) return true
+    if (esAdmin) {
+      // ADMIN no puede editar SUPERADMIN
+      if (usuario.rol === 'SUPERADMIN') return false
+      // ADMIN solo puede editar usuarios de su empresa
+      return usuario.empresaId === sesion.empresaId
+    }
+    return false
+  }
+
+  // Verificar si puede eliminar un usuario
+  const puedeEliminarUsuario = (usuario: Usuario) => {
+    if (esSuperAdmin) return true
+    if (esAdmin) {
+      // ADMIN no puede eliminar SUPERADMIN
+      if (usuario.rol === 'SUPERADMIN') return false
+      // ADMIN solo puede eliminar usuarios de su empresa
+      return usuario.empresaId === sesion.empresaId
+    }
+    return false
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">Usuarios</h2>
-          <p className="text-muted-foreground">Gestiona los usuarios del sistema</p>
+          <p className="text-muted-foreground">
+            {esSuperAdmin 
+              ? 'Gestiona todos los usuarios del sistema' 
+              : esAdmin 
+                ? `Gestiona los usuarios de ${sesion.nombre}` 
+                : 'No tienes permisos para gestionar usuarios'}
+          </p>
         </div>
-        <Button onClick={() => abrirModal()}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nuevo Usuario
-        </Button>
+        {(esSuperAdmin || esAdmin) && (
+          <Button onClick={() => abrirModal()}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nuevo Usuario
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -159,12 +254,16 @@ export function Usuarios() {
               </EmptyMedia>
               <EmptyTitle>No hay usuarios</EmptyTitle>
               <EmptyDescription>
-                Comienza creando tu primer usuario
+                {(esSuperAdmin || esAdmin) 
+                  ? 'Comienza creando tu primer usuario' 
+                  : 'No tienes permisos para ver usuarios'}
               </EmptyDescription>
-              <Button onClick={() => abrirModal()} className="mt-4">
-                <Plus className="h-4 w-4 mr-2" />
-                Crear Usuario
-              </Button>
+              {(esSuperAdmin || esAdmin) && (
+                <Button onClick={() => abrirModal()} className="mt-4">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Crear Usuario
+                </Button>
+              )}
             </Empty>
           ) : (
             <Table>
@@ -174,7 +273,7 @@ export function Usuarios() {
                   <TableHead>Nombre</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Rol</TableHead>
-                  <TableHead>Empresa</TableHead>
+                  {esSuperAdmin && <TableHead>Empresa</TableHead>}
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -187,20 +286,23 @@ export function Usuarios() {
                     <TableCell>
                       <Badge variant="outline">{usuario.rol}</Badge>
                     </TableCell>
-                    <TableCell>{getEmpresaNombre(usuario.empresaId)}</TableCell>
+                    {esSuperAdmin && <TableCell>{getEmpresaNombre(usuario.empresaId)}</TableCell>}
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => abrirModal(usuario)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={() => handleEliminar(usuario.id)}
-                          disabled={usuario.rol === 'SUPERADMIN'}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        {puedeEditarUsuario(usuario) && (
+                          <Button variant="ghost" size="sm" onClick={() => abrirModal(usuario)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {puedeEliminarUsuario(usuario) && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => handleEliminar(usuario.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -284,7 +386,7 @@ export function Usuarios() {
                     <SelectValue placeholder="Selecciona un rol" />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles.map((rol) => (
+                    {getRolesDisponibles().map((rol) => (
                       <SelectItem key={rol.id} value={rol.nombre}>
                         {rol.nombre}
                       </SelectItem>
@@ -292,25 +394,38 @@ export function Usuarios() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="empresa">Empresa</Label>
-                <Select
-                  value={formData.empresaId?.toString() || 'sin_empresa'}
-                  onValueChange={(value) => setFormData({ ...formData, empresaId: value === 'sin_empresa' ? null : parseInt(value) })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona una empresa" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sin_empresa">Sin asignar</SelectItem>
-                    {empresas.map((empresa) => (
-                      <SelectItem key={empresa.id} value={empresa.id.toString()}>
-                        {empresa.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {esSuperAdmin && (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="empresa">Empresa</Label>
+                  <Select
+                    value={formData.empresaId?.toString() || 'sin_empresa'}
+                    onValueChange={(value) => setFormData({ ...formData, empresaId: value === 'sin_empresa' ? null : parseInt(value) })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecciona una empresa" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sin_empresa">Sin asignar</SelectItem>
+                      {empresas.map((empresa) => (
+                        <SelectItem key={empresa.id} value={empresa.id.toString()}>
+                          {empresa.nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {esAdmin && (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="empresa">Empresa</Label>
+                  <Input
+                    id="empresa"
+                    value={getEmpresaNombre(sesion.empresaId)}
+                    disabled
+                    className="bg-muted"
+                  />
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={cerrarModal}>

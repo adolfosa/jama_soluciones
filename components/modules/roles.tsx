@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { getRoles, crearRol, actualizarRol, eliminarRol } from '@/lib/storage'
-import { Rol } from '@/lib/types'
+import { Rol, Sesion } from '@/lib/types'
 import { Plus, Pencil, Trash2, Shield } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -68,7 +68,11 @@ const PERMISOS_DISPONIBLES = [
   { id: 'GESTIONAR_DOCUMENTOS', label: 'Gestionar Documentos' },
 ]
 
-export function Roles() {
+interface RolesProps {
+  sesion: Sesion
+}
+
+export function Roles({ sesion }: RolesProps) {
   const [roles, setRoles] = useState<Rol[]>([])
   const [modalAbierto, setModalAbierto] = useState(false)
   const [rolEditando, setRolEditando] = useState<Rol | null>(null)
