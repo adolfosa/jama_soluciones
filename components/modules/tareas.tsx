@@ -25,10 +25,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { getTareas, crearTarea, actualizarTarea, eliminarTarea, getUsuarios, getEmpresas, getDocumentosPorTarea } from '@/lib/storage'
+import { getTareas, crearTarea, actualizarTarea, eliminarTarea, getUsuarios, getEmpresas, getDocumentosPorTarea, getDocumentos } from '@/lib/storage'
 import { puedeGestionarTareas, puedeAsignarTareas, soloVerPropiasTareas, puedeVerTodasEmpresas } from '@/lib/permissions'
-import { Tarea, Usuario, Empresa, Sesion } from '@/lib/types'
-import { Plus, Pencil, Trash2, CheckSquare, AlertTriangle, FileText } from 'lucide-react'
+import { Tarea, Usuario, Empresa, Sesion, Documento } from '@/lib/types'
+import { Plus, Pencil, Trash2, CheckSquare, AlertTriangle, FileText, Eye, Download, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface TareasProps {
@@ -53,6 +53,11 @@ export function Tareas({ sesion }: TareasProps) {
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [modalAbierto, setModalAbierto] = useState(false)
   const [tareaEditando, setTareaEditando] = useState<Tarea | null>(null)
+  const [documentosModalAbierto, setDocumentosModalAbierto] = useState(false)
+  const [tareaSeleccionada, setTareaSeleccionada] = useState<Tarea | null>(null)
+  const [documentosTarea, setDocumentosTarea] = useState<Documento[]>([])
+  const [previewModalAbierto, setPreviewModalAbierto] = useState(false)
+  const [documentoPreview, setDocumentoPreview] = useState<Documento | null>(null)
   const [formData, setFormData] = useState({
     titulo: '',
     descripcion: '',
@@ -184,6 +189,32 @@ export function Tareas({ sesion }: TareasProps) {
     }
   }
 
+  const handleVerDocumentos = (tarea: Tarea) => {
+    const docs = getDocumentosPorTarea(tarea.id)
+    setTareaSeleccionada(tarea)
+    setDocumentosTarea(docs)
+    setDocumentosModalAbierto(true)
+  }
+
+  const handleVerDocumento = (documento: Documento) => {
+    setDocumentoPreview(documento)
+    setPreviewModalAbierto(true)
+  }
+
+  const handleDescargarDocumento = (documento: Documento) => {
+    if (documento.fileBase64) {
+      const link = document.createElement('a')
+      link.href = documento.fileBase64
+      link.download = documento.nombre
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      toast.success(`Descargando: ${documento.nombre}`)
+    } else {
+      toast.error('No se pudo descargar el archivo')
+    }
+  }
+
   const getUsuarioNombre = (id: number | null) => {
     if (!id) return 'Sin asignar'
     const usuario = usuarios.find(u => u.id === id)
@@ -198,6 +229,19 @@ export function Tareas({ sesion }: TareasProps) {
 
   const getDocumentosCount = (tareaId: number) => {
     return getDocumentosPorTarea(tareaId).length
+  }
+
+  const getUsuarioDocumentoNombre = (id: number) => {
+    const usuario = usuarios.find(u => u.id === id)
+    return usuario?.nombre || 'Usuario no encontrado'
+  }
+
+  const getTipoIcono = (tipo: string) => {
+    switch (tipo) {
+      case 'pdf': return <FileText className="h-5 w-5 text-red-500" />
+      case 'image': return <FileText className="h-5 w-5 text-green-500" />
+      default: return <FileText className="h-5 w-5 text-muted-foreground" />
+    }
   }
 
   return (
@@ -275,8 +319,16 @@ export function Tareas({ sesion }: TareasProps) {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
-                          <FileText className="h-4 w-4 text-muted-foreground" />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => handleVerDocumentos(tarea)}
+                            title="Ver documentos adjuntos"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
                           <span>{docsCount}</span>
                           {tarea.requiereEvidencia && (
                             <Badge variant="outline" className="ml-1 text-xs">
@@ -309,7 +361,126 @@ export function Tareas({ sesion }: TareasProps) {
         </CardContent>
       </Card>
 
-      {/* Modal Crear/Editar */}
+      {/* Modal de Documentos de la Tarea */}
+      <Dialog open={documentosModalAbierto} onOpenChange={setDocumentosModalAbierto}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Documentos Adjuntos</DialogTitle>
+            <DialogDescription>
+              Tarea: {tareaSeleccionada?.titulo}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {documentosTarea.length === 0 ? (
+              <div className="text-center p-8 bg-muted rounded-lg">
+                <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                <p className="text-muted-foreground">No hay documentos adjuntos a esta tarea</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {documentosTarea.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {getTipoIcono(doc.tipo)}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate" title={doc.nombre}>
+                          {doc.nombre}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Subido por: {getUsuarioDocumentoNombre(doc.usuarioId)} | 
+                          Fecha: {new Date(doc.fechaSubida).toLocaleDateString('es-CL')}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleVerDocumento(doc)}
+                        title="Ver documento"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDescargarDocumento(doc)}
+                        title="Descargar documento"
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDocumentosModalAbierto(false)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Visualización de Documento */}
+      <Dialog open={previewModalAbierto} onOpenChange={setPreviewModalAbierto}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{documentoPreview?.nombre}</DialogTitle>
+            <DialogDescription>
+              Tipo: {documentoPreview?.tipo === 'image' ? 'Imagen' : documentoPreview?.tipo === 'pdf' ? 'PDF' : 'Documento'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {documentoPreview?.tipo === 'image' && documentoPreview.fileBase64 ? (
+              <div className="flex justify-center">
+                <img 
+                  src={documentoPreview.fileBase64} 
+                  alt={documentoPreview.nombre}
+                  className="max-w-full max-h-[60vh] object-contain rounded-lg"
+                />
+              </div>
+            ) : documentoPreview?.tipo === 'pdf' && documentoPreview.fileBase64 ? (
+              <div className="w-full">
+                <iframe
+                  src={documentoPreview.fileBase64}
+                  className="w-full h-[60vh] rounded-lg border"
+                  title={documentoPreview.nombre}
+                />
+              </div>
+            ) : documentoPreview?.fileBase64 ? (
+              <div className="text-center p-8 bg-muted rounded-lg">
+                <FileText className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
+                <p className="text-sm text-muted-foreground mb-4">
+                  Este archivo no se puede visualizar directamente
+                </p>
+                <Button onClick={() => handleDescargarDocumento(documentoPreview)}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Descargar Archivo
+                </Button>
+              </div>
+            ) : (
+              <div className="text-center p-8 bg-muted rounded-lg">
+                <FileText className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
+                <p className="text-sm text-muted-foreground">
+                  No se pudo cargar la vista previa
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreviewModalAbierto(false)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Crear/Editar Tarea */}
       <Dialog open={modalAbierto} onOpenChange={setModalAbierto}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
